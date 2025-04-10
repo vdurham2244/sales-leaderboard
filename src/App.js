@@ -14,14 +14,14 @@ const userMap = Object.fromEntries(
 );
 
 function App() {
-  const [currentView, setCurrentView] = useState('all-time');
+  const [currentView, setCurrentView] = useState('ytd-2025');
   const [salesData, setSalesData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [dataLoaded, setDataLoaded] = useState(false);
   
-  const VIEWS = ['all-time', 'jan-2025', 'feb-2025', 'mar-2025', 'apr-2025', '2024'];
+  const VIEWS = ['ytd-2025', 'week', 'jan-2025', 'feb-2025', 'mar-2025', 'apr-2025'];
   
   // Calculate totals
   const calculateTotals = useCallback(() => {
@@ -29,15 +29,21 @@ function App() {
     
     return {
       viewTotal: salesData.reduce((sum, person) => {
-        const amount = currentView === 'all-time' 
-          ? person.allTimeAmountNum 
-          : person[`${currentView}AmountNum`] || 0;
+        let amount;
+        if (currentView === 'ytd-2025') {
+          amount = person['ytd-2025AmountNum'];
+        } else {
+          amount = person[`${currentView}AmountNum`] || 0;
+        }
         return sum + amount;
       }, 0),
       viewDeals: salesData.reduce((sum, person) => {
-        const deals = currentView === 'all-time' 
-          ? person.allTimeDeals 
-          : person[`${currentView}Deals`];
+        let deals;
+        if (currentView === 'ytd-2025') {
+          deals = person['ytd-2025Deals'];
+        } else {
+          deals = person[`${currentView}Deals`];
+        }
         return sum + (parseInt(deals) || 0);
       }, 0)
     };
@@ -83,6 +89,8 @@ function App() {
               name: person.name,
               allTimeAmountNum: parseFloat(person.allTimeAmount) || 0,
               allTimeDeals: parseInt(person.allTimeDeals) || 0,
+              'weekAmountNum': parseFloat(person.weekAmount) || 0,
+              'weekDeals': parseInt(person.weekDeals) || 0,
               'jan-2025AmountNum': parseFloat(person['jan-2025Amount']) || 0,
               'jan-2025Deals': parseInt(person['jan-2025Deals']) || 0,
               'feb-2025AmountNum': parseFloat(person['feb-2025Amount']) || 0,
@@ -91,8 +99,15 @@ function App() {
               'mar-2025Deals': parseInt(person['mar-2025Deals']) || 0,
               'apr-2025AmountNum': parseFloat(person['apr-2025Amount']) || 0,
               'apr-2025Deals': parseInt(person['apr-2025Deals']) || 0,
-              '2024AmountNum': parseFloat(person['2024Amount']) || 0,
-              '2024Deals': parseInt(person['2024Deals']) || 0
+              // Calculate YTD totals from monthly data
+              'ytd-2025AmountNum': parseFloat(person['jan-2025Amount'] || 0) +
+                                  parseFloat(person['feb-2025Amount'] || 0) +
+                                  parseFloat(person['mar-2025Amount'] || 0) +
+                                  parseFloat(person['apr-2025Amount'] || 0),
+              'ytd-2025Deals': parseInt(person['jan-2025Deals'] || 0) +
+                              parseInt(person['feb-2025Deals'] || 0) +
+                              parseInt(person['mar-2025Deals'] || 0) +
+                              parseInt(person['apr-2025Deals'] || 0)
             };
             
             // Debug log for 2024 data
@@ -142,26 +157,33 @@ function App() {
     
     return [...salesData]
       .filter(person => {
-        const amount = currentView === 'all-time' 
-          ? person.allTimeAmountNum 
-          : person[`${currentView}AmountNum`];
+        let amount;
+        if (currentView === 'ytd-2025') {
+          amount = person['ytd-2025AmountNum'];
+        } else {
+          amount = person[`${currentView}AmountNum`];
+        }
         return amount > 0; // Filter out zero amounts
       })
       .sort((a, b) => {
-        const aAmount = currentView === 'all-time' 
-          ? a.allTimeAmountNum 
-          : a[`${currentView}AmountNum`];
-        const bAmount = currentView === 'all-time' 
-          ? b.allTimeAmountNum 
-          : b[`${currentView}AmountNum`];
+        let aAmount, bAmount;
+        if (currentView === 'ytd-2025') {
+          aAmount = a['ytd-2025AmountNum'];
+          bAmount = b['ytd-2025AmountNum'];
+        } else {
+          aAmount = a[`${currentView}AmountNum`];
+          bAmount = b[`${currentView}AmountNum`];
+        }
         return bAmount - aAmount;
       });
   }, [salesData, currentView]);
 
   const getViewTitle = (view) => {
     switch(view) {
-      case 'all-time':
-        return 'All Time Sales Leaders';
+      case 'ytd-2025':
+        return '2025 Year to Date Leaders';
+      case 'week':
+        return 'This Week\'s Sales Leaders';
       case 'jan-2025':
         return 'January 2025 Sales Leaders';
       case 'feb-2025':
@@ -170,8 +192,6 @@ function App() {
         return 'March 2025 Sales Leaders';
       case 'apr-2025':
         return 'April 2025 Sales Leaders';
-      case '2024':
-        return '2024 Sales Leaders';
       default:
         return '';
     }
@@ -237,12 +257,13 @@ function App() {
         <div className="totals-container">
           <div className="total-item">
             <span className="total-label">
-              {currentView === 'all-time' ? 'All-Time Total' : 
-              currentView === 'jan-2025' ? 'January Total' :
-              currentView === 'feb-2025' ? 'February Total' :
-              currentView === 'mar-2025' ? 'March Total' :
-              currentView === 'apr-2025' ? 'April Total' :
-              '2024 Total'}
+              {currentView === 'ytd-2025' ? '2025 YTD Total' :
+               currentView === 'week' ? 'This Week\'s Total' :
+               currentView === 'jan-2025' ? 'January Total' :
+               currentView === 'feb-2025' ? 'February Total' :
+               currentView === 'mar-2025' ? 'March Total' :
+               currentView === 'apr-2025' ? 'April Total' :
+               'Total'}
             </span>
             <span className="total-amount">${calculateTotals().viewTotal.toLocaleString()}</span>
             <span className="total-deals">{calculateTotals().viewDeals.toLocaleString()} Deals</span>
@@ -254,11 +275,11 @@ function App() {
           {sortedData.map((person, index) => {
             const userData = userMap[person.email];
             const rank = index + 1;
-            const amount = currentView === 'all-time' 
-              ? person.allTimeAmountNum 
+            const amount = currentView === 'ytd-2025' 
+              ? person['ytd-2025AmountNum'] 
               : person[`${currentView}AmountNum`];
-            const deals = currentView === 'all-time'
-              ? person.allTimeDeals
+            const deals = currentView === 'ytd-2025'
+              ? person['ytd-2025Deals']
               : person[`${currentView}Deals`];
             
             return (
