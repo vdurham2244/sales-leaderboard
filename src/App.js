@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import './App.css';
 import { users } from './config/users';
 
-const ROTATION_INTERVAL = 5000; // 5 seconds
+const ROTATION_INTERVAL = 12000; // 12 seconds
 const GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwIifqk42ISTGg03mdFexzwuG5doI1snvfQVaep_UZE_KgXM86GE79Mz7SmTS-ovaTz/exec';
 
 // Users to exclude from leaderboard
