@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import './App.css';
 import { users } from './config/users';
 
-const ROTATION_INTERVAL = 10000; // 10 seconds
-const GOOGLE_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwIifqk42ISTGg03mdFexzwuG5doI1snvfQVaep_UZE_KgXM86GE79Mz7SmTS-ovaTz/exec';
+const ROTATION_INTERVAL = 5000; // 5 seconds
+const GOOGLE_SHEETS_URL = process.env.REACT_APP_GOOGLE_SHEETS_URL;
 
 // Users to exclude from leaderboard
 const EXCLUDED_USERS = ['rtuttle@luciddronetech.com@lucidbots.com', 'unknown.rep@lucidbots.com'];
