@@ -75,5 +75,10 @@ export const users = [
         email: "drosales@lucidbots.com",
         image: "/profile-pictures/david.png",
     },
+    {
+        name: "Constantine Desjardins",
+        email: "cdesjardins@lucidbots.com",
+        image: "/profile-pictures/constantine.png",
+    },
     // Add more users as needed
 ]; 
