@@ -133,8 +133,6 @@ function App() {
     };
 
     fetchData();
-    const dataInterval = setInterval(fetchData, 300000); // 5 minutes
-    return () => clearInterval(dataInterval);
   }, []);
 
   // Cycle through sections every 10 seconds
@@ -164,7 +162,7 @@ function App() {
   return (
     <div className="App">
       <header>
-        <img src="/logo.png" alt="Lucid Bots Logo" className="logo" />
+        <img src="/lb-logo-blue-white.png" alt="Lucid Bots Logo" className="logo" />
       </header>
       <main className="leaderboards-container">
         <button className="nav-arrow prev" onClick={handlePrevious}>

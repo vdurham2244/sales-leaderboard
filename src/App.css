@@ -132,7 +132,7 @@ h1 {
 
 .rank {
   font-weight: bold;
-  color: #00e6e6;
+  color: #00e6e6 !important;
   width: 30px;
   text-align: center;
   position: relative;
@@ -471,6 +471,7 @@ h1 {
 .rank {
   font-size: clamp(1.2rem, 3vw, 1.8rem);
   font-weight: bold;
+  color: #00e6e6 !important;
   display: flex;
   align-items: baseline;
   justify-content: flex-end;
