@@ -36,7 +36,7 @@ export const users = [
         image: "/profile-pictures/sam.png",
     },
     {
-        name: "James Reed",
+        name: "Jon Reed",
         email: "jreed@lucidbots.com",
         image: "/profile-pictures/jon.png",
     },

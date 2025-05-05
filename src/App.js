@@ -1,320 +1,190 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import './App.css';
 import { users } from './config/users';
 
-const ROTATION_INTERVAL = 5000; // 5 seconds
-const GOOGLE_SHEETS_URL = process.env.REACT_APP_GOOGLE_SHEETS_URL;
+const userMap = {};
+users.forEach(user => {
+  // Map both full email and username part for matching
+  userMap[user.email.toLowerCase()] = user;
+  // Add mapping for username part (before @) to handle variations
+  const username = user.email.split('@')[0].toLowerCase();
+  userMap[username] = user;
+});
 
-// Users to exclude from leaderboard
-const EXCLUDED_USERS = ['rtuttle@luciddronetech.com@lucidbots.com', 'unknown.rep@lucidbots.com'];
+const SECTIONS = [
+  { title: "YTD Revenue Leaders", valueKey: "YTD 2025 $", dealsKey: "YTD Deals" },
+  { title: "May Revenue Leaders", valueKey: "May 2025 $", dealsKey: "May Deals" },
+  { title: "April Revenue Leaders", valueKey: "April 2025 $", dealsKey: "April Deals" },
+  { title: "This Week's Leaders", valueKey: "Week $", dealsKey: "Week Deals" },
+  { title: "May Calls Leaderboard", valueKey: "May Calls", isCalls: true }
+];
 
-// Create a map of email to user data for quick lookup
-const userMap = Object.fromEntries(
-  users.map(user => [user.email, user])
-);
+function LeaderboardSection({ title, data, valueKey, dealsKey, isCalls, isActive }) {
+  const sortedData = [...data]
+    .filter(person => person[valueKey] > 0)
+    .sort((a, b) => b[valueKey] - a[valueKey])
+    .slice(0, 10);  // Show top 10
+
+  // Calculate totals
+  const totals = data.reduce((acc, person) => {
+    acc.value += person[valueKey] || 0;
+    if (dealsKey) {
+      acc.deals += person[dealsKey] || 0;
+    }
+    return acc;
+  }, { value: 0, deals: 0 });
+
+  return (
+    <div className={`leaderboard-section ${isActive ? 'active' : ''}`}>
+      <div className="section-header">
+        <h2 className="section-title">{title}</h2>
+        <div className="section-totals">
+          <div className="total-item">
+            <span className="total-label">{isCalls ? 'Total Calls:' : 'Total Revenue:'}</span>
+            <span className="total-value">
+              {isCalls 
+                ? `${totals.value.toLocaleString()} calls`
+                : `$${totals.value.toLocaleString()}`
+              }
+            </span>
+          </div>
+          {!isCalls && dealsKey && (
+            <div className="total-item">
+              <span className="total-label">Total Deals:</span>
+              <span className="total-value">{totals.deals.toLocaleString()}</span>
+            </div>
+          )}
+        </div>
+      </div>
+      <ul className="leaderboard-list">
+        {sortedData.map((person, index) => {
+          const email = person.email?.toLowerCase();
+          // Try to match by email or username part
+          const username = email?.split('@')[0];
+          const user = userMap[email] || userMap[username];
+          const rank = index + 1;
+          return (
+            <li key={email} className={`leaderboard-item rank-${rank}`}>
+              <div className="rank">
+                {rank}
+                {rank <= 3 && <div className={`crown crown-${rank}`} />}
+              </div>
+              <div className="person-info">
+                {user?.image && (
+                  <div className="profile">
+                    <img src={user.image} alt={user?.name || email} />
+                  </div>
+                )}
+                <div className="info">
+                  <div className="person-name">{user?.name || email}</div>
+                  <div className="email">{email}</div>
+                </div>
+              </div>
+              <div className="stats">
+                <div className="amount">
+                  {isCalls ? 
+                    `${person[valueKey]} calls` : 
+                    `$${person[valueKey].toLocaleString()}`
+                  }
+                </div>
+                {!isCalls && dealsKey && (
+                  <div className="deals">
+                    <span className="deals-number">{person[dealsKey]}</span>
+                    <span className="deals-label">deals</span>
+                  </div>
+                )}
+              </div>
+            </li>
+          );
+        })}
+        {sortedData.length === 0 && (
+          <li className="leaderboard-item">No data available</li>
+        )}
+      </ul>
+    </div>
+  );
+}
 
 function App() {
-  const [currentView, setCurrentView] = useState('ytd-2025');
-  const [salesData, setSalesData] = useState([]);
+  const [rawData, setRawData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [lastUpdated, setLastUpdated] = useState(null);
-  const [dataLoaded, setDataLoaded] = useState(false);
-  
-  const VIEWS = ['ytd-2025', 'week', 'jan-2025', 'feb-2025', 'mar-2025', 'apr-2025'];
-  
-  // Calculate totals
-  const calculateTotals = useCallback(() => {
-    if (!salesData.length) return { viewTotal: 0, viewDeals: 0 };
-    
-    return {
-      viewTotal: salesData.reduce((sum, person) => {
-        let amount;
-        if (currentView === 'ytd-2025') {
-          amount = person['ytd-2025AmountNum'];
-        } else {
-          amount = person[`${currentView}AmountNum`] || 0;
-        }
-        return sum + amount;
-      }, 0),
-      viewDeals: salesData.reduce((sum, person) => {
-        let deals;
-        if (currentView === 'ytd-2025') {
-          deals = person['ytd-2025Deals'];
-        } else {
-          deals = person[`${currentView}Deals`];
-        }
-        return sum + (parseInt(deals) || 0);
-      }, 0)
-    };
-  }, [salesData, currentView]);
+  const [currentSection, setCurrentSection] = useState(0);
 
-  // Fetch data only once when component mounts
   useEffect(() => {
     const fetchData = async () => {
-      if (dataLoaded) return; // Skip if data is already loaded
-
       try {
         setLoading(true);
-        const response = await fetch(GOOGLE_SHEETS_URL, {
-          method: 'GET',
-          mode: 'cors',
-          headers: {
-            'Accept': 'application/json'
-          }
-        });
-        
-        if (!response.ok) {
-          throw new Error(`Failed to fetch data: ${response.status}`);
-        }
-        
+        const response = await fetch(process.env.REACT_APP_GOOGLE_SHEETS_URL);
         const data = await response.json();
         
-        if (!Array.isArray(data)) {
-          throw new Error('Invalid data format received');
+        if (data && data.leaderboard) {
+          setRawData(data.leaderboard);
+          setError(null);
+        } else {
+          throw new Error('Invalid data format');
         }
-
-        // Process data and filter out excluded users
-        const processedData = data
-          .filter(person => !EXCLUDED_USERS.includes(person.email)) // Remove excluded users
-          .map(person => {
-            // Clean up email by removing any duplicate @lucidbots.com
-            const email = person.email?.replace(/@lucidbots\.com@lucidbots\.com$/, '@lucidbots.com')
-                                     ?.replace(/@luciddronetech\.com@lucidbots\.com$/, '@luciddronetech.com');
-            
-            // Parse amounts with field names matching the Google Apps Script exactly
-            const processedPerson = {
-              ...person,
-              email,
-              name: person.name,
-              allTimeAmountNum: parseFloat(person.allTimeAmount) || 0,
-              allTimeDeals: parseInt(person.allTimeDeals) || 0,
-              'weekAmountNum': parseFloat(person.weekAmount) || 0,
-              'weekDeals': parseInt(person.weekDeals) || 0,
-              'jan-2025AmountNum': parseFloat(person['jan-2025Amount']) || 0,
-              'jan-2025Deals': parseInt(person['jan-2025Deals']) || 0,
-              'feb-2025AmountNum': parseFloat(person['feb-2025Amount']) || 0,
-              'feb-2025Deals': parseInt(person['feb-2025Deals']) || 0,
-              'mar-2025AmountNum': parseFloat(person['mar-2025Amount']) || 0,
-              'mar-2025Deals': parseInt(person['mar-2025Deals']) || 0,
-              'apr-2025AmountNum': parseFloat(person['apr-2025Amount']) || 0,
-              'apr-2025Deals': parseInt(person['apr-2025Deals']) || 0,
-              // Calculate YTD totals from monthly data
-              'ytd-2025AmountNum': parseFloat(person['jan-2025Amount'] || 0) +
-                                  parseFloat(person['feb-2025Amount'] || 0) +
-                                  parseFloat(person['mar-2025Amount'] || 0) +
-                                  parseFloat(person['apr-2025Amount'] || 0),
-              'ytd-2025Deals': parseInt(person['jan-2025Deals'] || 0) +
-                              parseInt(person['feb-2025Deals'] || 0) +
-                              parseInt(person['mar-2025Deals'] || 0) +
-                              parseInt(person['apr-2025Deals'] || 0)
-            };
-            
-            // Debug log for 2024 data
-            console.log('Processing person:', {
-              name: person.name,
-              raw2024Data: person['2024Amount'],
-              processed2024Amount: processedPerson['2024AmountNum'],
-              processed2024Deals: processedPerson['2024Deals']
-            });
-            
-            return processedPerson;
-          });
-        
-        // Debug logs to see the data structure
-        console.log('First row of processed data:', processedData[0]);
-        
-        setSalesData(processedData);
-        setLastUpdated(new Date());
-        setDataLoaded(true);
-        setError(null);
       } catch (error) {
-        console.error('Error fetching data:', error);
-        setError(`Failed to load sales data: ${error.message}`);
+        console.error("Error:", error);
+        setError("Failed to load data");
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
-  }, []); // Empty dependency array means this runs once on mount
+    const dataInterval = setInterval(fetchData, 300000); // 5 minutes
+    return () => clearInterval(dataInterval);
+  }, []);
 
-  // View rotation
+  // Cycle through sections every 10 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      setCurrentView(prev => {
-        const currentIndex = VIEWS.indexOf(prev);
-        return VIEWS[(currentIndex + 1) % VIEWS.length];
-      });
-    }, ROTATION_INTERVAL);
-
+      setCurrentSection(current => (current + 1) % SECTIONS.length);
+    }, 10000);
     return () => clearInterval(interval);
   }, []);
 
-  // Sort data based on current view
-  const sortedData = useMemo(() => {
-    if (!salesData.length) return [];
-    
-    return [...salesData]
-      .filter(person => {
-        let amount;
-        if (currentView === 'ytd-2025') {
-          amount = person['ytd-2025AmountNum'];
-        } else {
-          amount = person[`${currentView}AmountNum`];
-        }
-        return amount > 0; // Filter out zero amounts
-      })
-      .sort((a, b) => {
-        let aAmount, bAmount;
-        if (currentView === 'ytd-2025') {
-          aAmount = a['ytd-2025AmountNum'];
-          bAmount = b['ytd-2025AmountNum'];
-        } else {
-          aAmount = a[`${currentView}AmountNum`];
-          bAmount = b[`${currentView}AmountNum`];
-        }
-        return bAmount - aAmount;
-      });
-  }, [salesData, currentView]);
-
-  const getViewTitle = (view) => {
-    switch(view) {
-      case 'ytd-2025':
-        return '2025 Year to Date Leaders';
-      case 'week':
-        return 'This Week\'s Sales Leaders';
-      case 'jan-2025':
-        return 'January 2025 Sales Leaders';
-      case 'feb-2025':
-        return 'February 2025 Sales Leaders';
-      case 'mar-2025':
-        return 'March 2025 Sales Leaders';
-      case 'apr-2025':
-        return 'April 2025 Sales Leaders';
-      default:
-        return '';
-    }
+  const handlePrevious = () => {
+    setCurrentSection(current => 
+      current === 0 ? SECTIONS.length - 1 : current - 1
+    );
   };
 
-  // Add rank suffix
-  const getRankSuffix = (rank) => {
-    if (rank === 1) return 'st';
-    if (rank === 2) return 'nd';
-    if (rank === 3) return 'rd';
-    return 'th';
+  const handleNext = () => {
+    setCurrentSection(current => 
+      (current + 1) % SECTIONS.length
+    );
   };
 
-  if (loading && !salesData.length) {
-    return (
-      <div className="App">
-        <div className="logo-container">
-          {/* Add your logo here */}
-          <img src="/logo.png" alt="Company Logo" className="company-logo" />
-        </div>
-        <div className="leaderboard loading">
-          <div className="loading-spinner"></div>
-          <h1>Loading Sales Champions...</h1>
-        </div>
-      </div>
-    );
-  }
-
-  if (error && !salesData.length) {
-    return (
-      <div className="App">
-        <div className="logo-container">
-          <img src="/logo.png" alt="Company Logo" className="company-logo" />
-        </div>
-        <div className="leaderboard error">
-          <h1>Error</h1>
-          <p>{error}</p>
-          <button onClick={() => {
-            setDataLoaded(false);
-            setError(null);
-          }} className="retry-button">
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <div className="loading">Loading sales data...</div>;
+  if (error) return <div className="error">{error}</div>;
+  if (!rawData.length) return <div>No data available</div>;
 
   return (
     <div className="App">
-      <div className="top-section">
-        <div className="logo-container">
-          <img src="/logo.png" alt="Company Logo" className="company-logo" />
-        </div>
-        <div className="header-content">
-          <h1>{getViewTitle(currentView)}</h1>
-          {lastUpdated && (
-            <div className="last-updated">
-              Last updated: {lastUpdated.toLocaleTimeString()}
-            </div>
-          )}
-        </div>
-        <div className="totals-container">
-          <div className="total-item">
-            <span className="total-label">
-              {currentView === 'ytd-2025' ? '2025 YTD Total' :
-               currentView === 'week' ? 'This Week\'s Total' :
-               currentView === 'jan-2025' ? 'January Total' :
-               currentView === 'feb-2025' ? 'February Total' :
-               currentView === 'mar-2025' ? 'March Total' :
-               currentView === 'apr-2025' ? 'April Total' :
-               'Total'}
-            </span>
-            <span className="total-amount">${calculateTotals().viewTotal.toLocaleString()}</span>
-            <span className="total-deals">{calculateTotals().viewDeals.toLocaleString()} Deals</span>
-          </div>
-        </div>
-      </div>
-      <div className="leaderboard">
-        <div className="leaderboard-content">
-          {sortedData.map((person, index) => {
-            const userData = userMap[person.email];
-            const rank = index + 1;
-            const amount = currentView === 'ytd-2025' 
-              ? person['ytd-2025AmountNum'] 
-              : person[`${currentView}AmountNum`];
-            const deals = currentView === 'ytd-2025'
-              ? person['ytd-2025Deals']
-              : person[`${currentView}Deals`];
-            
-            return (
-              <div key={person.email} className={`leaderboard-row rank-${rank}`}>
-                <div className="rank">
-                  <span className="rank-number">{rank}</span>
-                  <span className="rank-suffix">{getRankSuffix(rank)}</span>
-                </div>
-                <div className="profile-info">
-                  <div className="profile">
-                    <img 
-                      src={userData?.image || '/profile-pictures/default.png'}
-                      alt={userData?.name || person.email}
-                      onError={(e) => {
-                        e.target.src = '/profile-pictures/default.png';
-                      }}
-                    />
-                  </div>
-                  <div className="info">
-                    <div className="name">{userData?.name || person.email}</div>
-                    <div className="email">{person.email}</div>
-                  </div>
-                </div>
-                <div className="stats">
-                  <div className="amount">${amount.toLocaleString()}</div>
-                  <div className="deals">
-                    <span className="deals-number">{deals || 0}</span>
-                    <span className="deals-label">deals</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <header>
+        <img src="/logo.png" alt="Lucid Bots Logo" className="logo" />
+      </header>
+      <main className="leaderboards-container">
+        <button className="nav-arrow prev" onClick={handlePrevious}>
+          ‹
+        </button>
+        {SECTIONS.map((section, index) => (
+          <LeaderboardSection
+            key={section.title}
+            title={section.title}
+            data={rawData}
+            valueKey={section.valueKey}
+            dealsKey={section.dealsKey}
+            isCalls={section.isCalls}
+            isActive={currentSection === index}
+          />
+        ))}
+        <button className="nav-arrow next" onClick={handleNext}>
+          ›
+        </button>
+      </main>
     </div>
   );
 }
