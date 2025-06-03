@@ -6,90 +6,86 @@ const HUBSPOT_API_KEY = PropertiesService.getScriptProperties().getProperty('HUB
 const AIRCALL_ID      = PropertiesService.getScriptProperties().getProperty('AIRCALL_ID');
 const AIRCALL_TOKEN   = PropertiesService.getScriptProperties().getProperty('AIRCALL_TOKEN');
 
-const CURRENT_YEAR = 2025;               // contest year
+const CURRENT_YEAR = 2025;
 const SHEET_NAME   = 'DealsLeaderboard';
 
 /*****************************************************************
  *  PUBLIC ENDPOINT  (exec URL)
  *****************************************************************/
 function doGet() {
-  const sh    = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAME);
   if (!sh) return ContentService.createTextOutput('{}');
 
-  const data  = sh.getDataRange().getValues();
-  const hdr   = data[0] || [];
-  const rows  = data.slice(1).map(r => {
+  const data = sh.getDataRange().getValues();
+  const hdr = data[0] || [];
+  const rows = data.slice(1).map(r => {
     const obj = { email: r[0] };
     for (let i = 1; i < hdr.length; i++) obj[hdr[i]] = r[i];
     return obj;
   });
   return ContentService
-          .createTextOutput(JSON.stringify({ leaderboard: rows }))
-          .setMimeType(ContentService.MimeType.JSON);
+    .createTextOutput(JSON.stringify({ leaderboard: rows }))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 /*****************************************************************
  *  MAIN REFRESH – run manually or via time-trigger
  *****************************************************************/
 function updateFromHubSpot() {
-  /* create/clear sheet */
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sh   = ss.getSheetByName(SHEET_NAME);
+  let sh = ss.getSheetByName(SHEET_NAME);
   sh ? sh.clear() : (sh = ss.insertSheet(SHEET_NAME));
 
   sh.appendRow([
     'Sales Rep',
     'May 2025 $',  'May Deals',
-    'April 2025 $','April Deals',
+    'June 2025 $', 'June Deals',
     `YTD ${CURRENT_YEAR} $`, 'YTD Deals',
     'Week $',      'Week Deals',
-    'May Calls'
+    'June Calls'
   ]);
 
-  /* ---------- HubSpot ---------- */
-  const deals     = fetchClosedWonDeals();
-  const ownerMap  = fetchAllOwners();
+  const deals = fetchClosedWonDeals();
+  const ownerMap = fetchAllOwners();
   const weekStart = mondayStart(new Date());
 
-  const board = {};                           // { email : repObj }
+  const board = {}; // { email : repObj }
 
   deals.forEach(d => {
-    const p         = d.properties || {};
-    const email     = ownerMap[p.hubspot_owner_id] || 'unknown@rep.com';
-    const amount    = parseFloat(p.amount) || 0;
-    const closed    = p.closedate ? new Date(p.closedate) : null;
+    const p = d.properties || {};
+    const email = ownerMap[p.hubspot_owner_id] || 'unknown@rep.com';
+    const amount = parseFloat(p.amount) || 0;
+    const closed = p.closedate ? new Date(p.closedate) : null;
     if (!closed || isNaN(closed)) return;
 
     if (!board[email]) board[email] = blankRep();
 
-    const m = closed.getMonth();              // 0=Jan
+    const m = closed.getMonth(); // 0 = Jan
     if (closed.getFullYear() === CURRENT_YEAR) {
-      add(board[email].ytd,   amount);
-      if (m === 3) add(board[email].april, amount);   // April
-      if (m === 4) add(board[email].may,   amount);   // May
+      add(board[email].ytd, amount);
+      if (m === 4) add(board[email].may, amount);   // May
+      if (m === 5) add(board[email].june, amount);  // June
     }
     if (closed >= weekStart) add(board[email].week, amount);
   });
 
-  /* ---------- Aircall (May-2025) ---------- */
-  const mayCounts = fetchMay2025AircallCounts();   // { username : calls }
+  const juneCounts = fetchJune2025AircallCounts(); // { username : calls }
 
-  Object.entries(mayCounts).forEach(([user, cnt]) => {
+  Object.entries(juneCounts).forEach(([user, cnt]) => {
     const emailKey = Object.keys(board)
       .find(e => e.toLowerCase().startsWith(user)) || `${user}@unknown.com`;
     if (!board[emailKey]) board[emailKey] = blankRep();
-    board[emailKey].mayCalls = cnt;
+    board[emailKey].juneCalls = cnt;
   });
 
-  /* ---------- Write rows ---------- */
   Object.entries(board).forEach(([email, d]) => {
     sh.appendRow([
       email,
       d.may.revenue,   d.may.count,
-      d.april.revenue, d.april.count,
+      d.june.revenue,  d.june.count,
       d.ytd.revenue,   d.ytd.count,
       d.week.revenue,  d.week.count,
-      d.mayCalls
+      d.juneCalls
     ]);
   });
 }
@@ -99,21 +95,21 @@ function updateFromHubSpot() {
  *****************************************************************/
 function blankRep() {
   return {
-    may   : { revenue:0, count:0 },
-    april : { revenue:0, count:0 },
-    ytd   : { revenue:0, count:0 },
-    week  : { revenue:0, count:0 },
-    mayCalls : 0
+    may   : { revenue: 0, count: 0 },
+    june  : { revenue: 0, count: 0 },
+    ytd   : { revenue: 0, count: 0 },
+    week  : { revenue: 0, count: 0 },
+    juneCalls: 0
   };
 }
 function add(obj, amt) {
   obj.revenue += amt;
-  obj.count   += 1;
+  obj.count += 1;
 }
 function mondayStart(d) {
   const n = new Date(d);
   const offset = n.getDay() === 0 ? -6 : 1 - n.getDay();
-  n.setDate(n.getDate()+offset); n.setHours(0,0,0,0);
+  n.setDate(n.getDate() + offset); n.setHours(0, 0, 0, 0);
   return n;
 }
 
@@ -125,62 +121,68 @@ function fetchClosedWonDeals() {
   let after;
   while (true) {
     const body = {
-      filterGroups:[{ filters:[{ propertyName:'dealstage',operator:'EQ',value:'50191472'}] }],
-      properties : ['amount','hubspot_owner_id','closedate'],
-      limit:100, after
+      filterGroups: [{ filters: [{ propertyName: 'dealstage', operator: 'EQ', value: '50191472' }] }],
+      properties: ['amount', 'hubspot_owner_id', 'closedate'],
+      limit: 100, after
     };
     const resp = UrlFetchApp.fetch(
       'https://api.hubapi.com/crm/v3/objects/deals/search',
-      { method:'post', contentType:'application/json',
-        payload:JSON.stringify(body),
-        headers:{ Authorization:`Bearer ${HUBSPOT_API_KEY}` } }
+      {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify(body),
+        headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}` }
+      }
     );
     const json = JSON.parse(resp.getContentText());
-    list.push(...(json.results||[]));
+    list.push(...(json.results || []));
     after = json.paging?.next?.after; if (!after) break;
   }
   return list;
 }
 function fetchAllOwners() {
-  const url  = 'https://api.hubapi.com/crm/v3/owners?limit=250';
-  const resp = UrlFetchApp.fetch(url, { headers:{ Authorization:`Bearer ${HUBSPOT_API_KEY}` }});
-  const map  = {};
-  JSON.parse(resp.getContentText()).results.forEach(o=>{
+  const url = 'https://api.hubapi.com/crm/v3/owners?limit=250';
+  const resp = UrlFetchApp.fetch(url, {
+    headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}` }
+  });
+  const map = {};
+  JSON.parse(resp.getContentText()).results.forEach(o => {
     map[o.id] = o.email || 'unknown@rep.com';
   });
   return map;
 }
 
 /*****************************************************************
- *  AIRCALL – full May-2025 call counts
+ *  AIRCALL – full June-2025 call counts
  *****************************************************************/
-function fetchMay2025AircallCounts() {
-  const repMap   = {};
+function fetchJune2025AircallCounts() {
+  const repMap = {};
   const PER_PAGE = 100;
-  const MAY_START= Date.UTC(2025,4,1);
-  const MAY_END  = Date.UTC(2025,4,31,23,59,59);
+  const JUNE_START = Date.UTC(2025, 5, 1);               // June = 5
+  const JUNE_END   = Date.UTC(2025, 5, 31, 23, 59, 59);  // June 31
 
-  for (let page=1;;page++) {
-    const url  = `https://api.aircall.io/v1/calls?per_page=${PER_PAGE}&page=${page}&order=desc`;
+  for (let page = 1;; page++) {
+    const url = `https://api.aircall.io/v1/calls?per_page=${PER_PAGE}&page=${page}&order=desc`;
     const resp = UrlFetchApp.fetch(url, {
-      muteHttpExceptions:true,
-      headers:{ Authorization:'Basic '+Utilities.base64Encode(`${AIRCALL_ID}:${AIRCALL_TOKEN}`)}
+      muteHttpExceptions: true,
+      headers: {
+        Authorization: 'Basic ' + Utilities.base64Encode(`${AIRCALL_ID}:${AIRCALL_TOKEN}`)
+      }
     });
-    const calls = (JSON.parse(resp.getContentText()).calls)||[];
-    if (calls.length===0) break;
+    const calls = (JSON.parse(resp.getContentText()).calls) || [];
+    if (calls.length === 0) break;
 
-    /* oldest on this page */
-    const oldest = Number(calls[calls.length-1].started_at)*1000;
+    const oldest = Number(calls[calls.length - 1].started_at) * 1000;
 
-    calls.forEach(c=>{
-      const ts = Number(c.started_at)*1000;
-      if (ts < MAY_START || ts > MAY_END) return;
+    calls.forEach(c => {
+      const ts = Number(c.started_at) * 1000;
+      if (ts < JUNE_START || ts > JUNE_END) return;
       if (!c.user || !c.user.email) return;
       const user = c.user.email.split('@')[0].toLowerCase();
       repMap[user] = (repMap[user] || 0) + 1;
     });
 
-    if (oldest < MAY_START) break;          // reached April or earlier
+    if (oldest < JUNE_START) break;
   }
-  return repMap;  // { username: calls }
+  return repMap;
 }

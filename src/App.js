@@ -13,10 +13,10 @@ users.forEach(user => {
 
 const SECTIONS = [
   { title: "YTD Revenue Leaders", valueKey: "YTD 2025 $", dealsKey: "YTD Deals" },
+  { title: "June Revenue Leaders", valueKey: "June 2025 $", dealsKey: "June Deals" },
   { title: "May Revenue Leaders", valueKey: "May 2025 $", dealsKey: "May Deals" },
-  { title: "April Revenue Leaders", valueKey: "April 2025 $", dealsKey: "April Deals" },
   { title: "This Week's Leaders", valueKey: "Week $", dealsKey: "Week Deals" },
-  { title: "May Calls Leaderboard", valueKey: "May Calls", isCalls: true }
+  { title: "June Calls Leaderboard", valueKey: "June Calls", isCalls: true }
 ];
 
 function LeaderboardSection({ title, data, valueKey, dealsKey, isCalls, isActive }) {
